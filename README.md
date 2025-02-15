@@ -185,9 +185,7 @@ For queries and support, reach out to:
 * Ned Mohan Chapter 4 for K-factor design
 * Additional resources provided in the competition folder
 
-## Submission Links
-* Subtask 1: https://forms.gle/ZG5TY2GgVkr6QPpk7
-* Subtask 2: https://forms.gle/JvBePi2kqucxUwBi8
+
 
 **Note**: This is a highly technical competition focusing on power electronics design and implementation. Participants are expected to have a strong foundation in electronics and power systems.
 
