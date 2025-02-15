@@ -1,4 +1,4 @@
-# Byte Brigades Embedathon
+# Embedathon
 
 Team Byte Brigades's submission for IEEE Embedathon 2025.
 
