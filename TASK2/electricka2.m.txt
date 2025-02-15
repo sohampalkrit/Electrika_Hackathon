@@ -1,0 +1,207 @@
+% Complete Boost Converter Design, Analysis, and Digital Implementation
+clear all;
+close all;
+clc;
+
+%% 1. INITIAL PARAMETERS
+% System Requirements
+Vin = 10;          % Input Voltage (V)
+Vout = 20;         % Desired Output Voltage (V)
+Pout = 10;         % Output Power (W)
+fsw = 20e3;        % Switching frequency (Hz)
+Ts = 1/fsw;        % Switching period (s)
+
+%% 2. CONVERTER DESIGN
+% Operating Point Calculations
+Iout = Pout/Vout;                  % Output current (A)
+D = 1 - (Vin/Vout);               % Duty cycle
+IL_avg = Iout/(1-D);              % Average inductor current
+
+% Ripple Specifications
+di_L = 0.05 * IL_avg;             % 5% current ripple
+dv_out = 0.02 * Vout;             % 2% voltage ripple
+
+% Component Value Calculations
+L = (Vin * D * Ts)/(di_L);        % Required inductance
+Cout = (Iout * D * Ts)/(dv_out);  % Required capacitance
+R = (Vout^2)/Pout;                % Load resistance
+
+% Display Component Values
+fprintf('\nConverter Design Parameters:\n');
+fprintf('Duty Cycle: %.2f\n', D);
+fprintf('Average Inductor Current: %.2f A\n', IL_avg);
+fprintf('Required Inductance: %.2e H\n', L);
+fprintf('Required Capacitance: %.2e F\n', Cout);
+fprintf('Load Resistance: %.2f Ω\n', R);
+
+%% 3. SMALL SIGNAL MODELING
+% State Space Matrices
+A = [0 -1/L; 1/Cout -1/(R*Cout)];
+B = [Vin/L; 0];
+C_matrix = [0 1];
+D_matrix = 0;
+
+% Create State Space System
+sys = ss(A, B, C_matrix, D_matrix);
+
+% Get Transfer Function
+Gps = tf(sys);
+fprintf('\nPlant Transfer Function:\n');
+disp(Gps);
+
+%% 4. CONTROLLER DESIGN (K-Factor Method)
+% Frequency Analysis
+fc = fsw/10;                    % Crossover frequency
+wc = 2*pi*fc;                   % Angular crossover frequency
+
+% Get Plant Characteristics at Crossover
+[mag, phase] = bode(Gps, wc);
+mag_db = 20*log10(mag);
+phase_deg = phase;
+
+% Control System Parameters
+G_PWM = 0.6667;                 % PWM gain
+K_fb = 0.165;                   % Feedback gain
+
+% K-Factor Method Parameters
+PM_desired = 60;                % Desired phase margin (degrees)
+K = 10;                         % K-factor
+
+% Calculate Type 3 Compensator
+phi_boost = PM_desired - phase_deg - 180;
+fz = fc/sqrt(K);               % Zero frequency
+fp = fc*sqrt(K);               % Pole frequency
+
+% Compensator Transfer Function
+s = tf('s');
+Gc = ((s/2/pi/fz + 1)^2)/((s/2/pi/fp + 1)^2) * (1/s);
+
+% Adjust Gain
+[mag_c, phase_c] = bode(Gc, wc);
+Kc = 1/(mag*mag_c*G_PWM*K_fb);
+Gc = Kc*Gc;
+
+% Complete Loop Transfer Function
+T = Gc*Gps*G_PWM*K_fb;
+
+%% 5. CONTINUOUS SYSTEM ANALYSIS
+figure(1);
+margin(T);
+grid on;
+title('Continuous System Loop Gain Bode Plot');
+
+figure(2);
+closed_loop_sys = feedback(T, 1);
+step(closed_loop_sys);
+grid on;
+title('Continuous System Closed Loop Step Response');
+
+% Calculate Continuous System Metrics
+[Gm, Pm, Wcg, Wcp] = margin(T);
+fprintf('\nContinuous System Metrics:\n');
+fprintf('Phase Margin: %.2f degrees\n', Pm);
+fprintf('Gain Margin: %.2f dB\n', 20*log10(Gm));
+fprintf('Crossover Frequency: %.2f Hz\n', Wcp/(2*pi));
+
+% Step Response Metrics
+S = stepinfo(closed_loop_sys);
+fprintf('Settling Time: %.3f ms\n', S.SettlingTime*1000);
+fprintf('Overshoot: %.2f%%\n', S.Overshoot);
+
+%% 6. DISCRETIZATION
+% Discretize Plant (ZOH method)
+Gpz = c2d(Gps, Ts, 'zoh');
+fprintf('\nDiscrete Plant Transfer Function:\n');
+disp(Gpz);
+
+% Discretize Controller (Tustin method)
+Gcz = c2d(Gc, Ts, 'tustin');
+fprintf('\nDiscrete Controller Transfer Function:\n');
+disp(Gcz);
+
+% Discrete Loop Transfer Function
+Tz = Gcz * Gpz * G_PWM * K_fb;
+
+%% 7. DISCRETE SYSTEM ANALYSIS
+% Frequency Response Comparison
+figure(3);
+bode(T, 'b', Tz, 'r--');
+grid on;
+legend('Continuous', 'Discrete');
+title('Continuous vs Discrete Loop Frequency Response');
+
+% Step Response Comparison
+figure(4);
+discrete_closed_loop = feedback(Tz, 1);
+step(discrete_closed_loop);
+hold on;
+step(closed_loop_sys);
+grid on;
+legend('Discrete', 'Continuous');
+title('Step Response Comparison');
+
+% Calculate Discrete Metrics
+[Gm_d, Pm_d, Wcg_d, Wcp_d] = margin(Tz);
+fprintf('\nDiscrete System Metrics:\n');
+fprintf('Phase Margin: %.2f degrees\n', Pm_d);
+fprintf('Gain Margin: %.2f dB\n', 20*log10(Gm_d));
+fprintf('Crossover Frequency: %.2f Hz\n', Wcp_d/(2*pi));
+
+Sd = stepinfo(discrete_closed_loop);
+fprintf('Settling Time: %.3f ms\n', Sd.SettlingTime*1000);
+fprintf('Overshoot: %.2f%%\n', Sd.Overshoot);
+
+%% 8. DIGITAL IMPLEMENTATION
+% Get Difference Equation Coefficients
+[num_d, den_d] = tfdata(Gcz, 'v');
+
+fprintf('\nDifference Equation Coefficients:\n');
+fprintf('Numerator: ');
+fprintf('%.4e ', num_d);
+fprintf('\nDenominator: ');
+fprintf('%.4e ', den_d);
+fprintf('\n');
+
+% Implementation Requirements
+memory_words = length(num_d) + length(den_d) - 1;
+fprintf('\nDigital Implementation Requirements:\n');
+fprintf('Memory locations needed: %d words\n', memory_words);
+fprintf('Multiplications per sample: %d\n', length(num_d) + length(den_d) - 1);
+fprintf('Additions per sample: %d\n', length(num_d) + length(den_d) - 2);
+
+% Generate C-style implementation code
+fprintf('\nC Implementation Template:\n');
+fprintf('// Previous inputs (x) and outputs (y)\n');
+for i = 1:length(num_d)-1
+    fprintf('float x_%d = 0.0f;\n', i);
+end
+for i = 1:length(den_d)-1
+    fprintf('float y_%d = 0.0f;\n', i);
+end
+
+fprintf('\n// Controller implementation function\n');
+fprintf('float compute_control(float error) {\n');
+fprintf('    float output = %.4e * error;\n', num_d(1));
+for i = 1:length(num_d)-1
+    fprintf('    output += %.4e * x_%d;\n', num_d(i+1), i);
+end
+for i = 1:length(den_d)-1
+    fprintf('    output -= %.4e * y_%d;\n', den_d(i+1), i);
+end
+
+fprintf('\n    // Update delay lines\n');
+for i = length(num_d)-1:-1:2
+    fprintf('    x_%d = x_%d;\n', i, i-1);
+end
+if length(num_d) > 1
+    fprintf('    x_1 = error;\n');
+end
+for i = length(den_d)-1:-1:2
+    fprintf('    y_%d = y_%d;\n', i, i-1);
+end
+if length(den_d) > 1
+    fprintf('    y_1 = output;\n');
+end
+
+fprintf('    return output;\n');
+fprintf('}\n');
